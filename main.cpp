@@ -1,5 +1,6 @@
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <ostream>
 #include <vector>
 #include <array>
@@ -8,6 +9,18 @@
 #include <sstream>
 #include <string>
 #include <algorithm>
+#include <cmath>
+#include <random>
+#include <string>
+
+#ifdef LOCAL
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <boost/system/error_code.hpp>
+#endif
 
 constexpr int N = 30;
 constexpr int MIN_DIST = 1000;
@@ -63,11 +76,85 @@ struct Path
     }
 };
 
+struct UCB1
+{
+    double reward_average;
+    int num_selected;
+    int num_all;
+
+    double calculate() const
+    {
+        double score = reward_average;
+        score += std::sqrt(2.0 * std::log2(num_all) / static_cast<double>(num_selected));
+        score = 1.0 / score;
+        return score;
+    }
+};
+
+struct Parameters
+{
+    std::map<std::string, double> dict = {
+        {"update_ratio", 0.5},
+        {"update_decrease_ratio", 1.0},
+        {"update_weak_ratio", 0},
+        {"update_weak_decrease_ratio", 1.0},
+        {"width_ratio", 0},
+        {"width_decrease_ratio", 1.0}
+    };
+
+    void update()
+    {
+        dict["update_ratio"]      *= dict["update_decrease_ratio"];
+        dict["update_weak_ratio"] *= dict["update_weak_decrease_ratio"];
+        dict["width_ratio"]       *= dict["width_decrease_ratio"];
+    }
+
+    double operator[](std::string s)
+    {
+        return dict.at(s);
+    }
+};
+Parameters parameters;
+
+struct Probability
+{
+
+
+    double distance;
+    double min;
+    double max;
+
+    template<typename RandomEngine>
+    void generate(RandomEngine& rnd)
+    {
+        distance = std::uniform_real_distribution<>(min, max)(rnd);
+    }
+
+    void update(double next)
+    {
+        const double rev = 1 - parameters["update_ratio"];
+        min = min * rev + next * parameters["update_ratio"];
+        max = max * rev + next * parameters["update_ratio"];
+        const double tmp = std::min(min, max);
+        max = std::max(min, max) + 1e-9;
+        min = tmp;
+    }
+
+    void update_weak(double next)
+    {
+        const double rev = 1 - parameters["update_weak_ratio"];
+        min = min * rev + next * parameters["update_weak_ratio"];
+        max = max * rev + next * parameters["update_weak_ratio"];
+        const double tmp = std::min(min, max);
+        max = std::max(min, max) + 1e-9;
+        min = tmp;
+    }
+};
+
 struct Node
 {
     int r, c;
-    std::array<double, 4> adj;
-    std::vector<Path> paths;
+    std::array<Probability, 4> adj;
 };
 
 std::array<std::array<Node, N>, N> grids;
@@ -138,7 +225,7 @@ Path dijkstra(const Point& s, const Point& t)
             {
                 continue;
             }
-            next.length += grids[node.cur.r][node.cur.c].adj[d];
+            next.length += grids[node.cur.r][node.cur.c].adj[d].distance;
             queue.push(next);
         }
     }
@@ -162,32 +249,133 @@ Path dijkstra(const Point& s, const Point& t)
 
 void update(Path& path, const int score)
 {
+    const int size = static_cast<int>(path.dirs.size());
     path.score = score;
-    const double average = path.score / path.dirs.size();
+    const double average = path.score / size;
+    const double reward = (MAX_DIST - average) / (MAX_DIST - MIN_DIST);
 
     Point ite = path.start;
     for (const int& dir : path.dirs)
     {
+        const int rev_dir = (dir + 2) % 4;
         Point next = ite;
         next.r += OFS[dir].r;
         next.c += OFS[dir].c;
-
-        grids[ite.r][ite.c].adj[dir] = average;
-        grids[next.r][next.c].adj[(dir + 2) % 4] = average;
+        {
+            // UPDATE
+            int r = next.r;
+            int c = next.c;
+            for (;;)
+            {
+                const int nr = r + OFS[rev_dir].r;
+                const int nc = c + OFS[rev_dir].c;
+                if (is_out(nr, nc))
+                {
+                    break;
+                }
+                grids[ r][ c].adj[rev_dir].update(average);
+                grids[nr][nc].adj[    dir].update(average);
+                r = nr;
+                c = nc;
+            }
+        }
+        {
+            // UPDATE WEAK
+            int r = next.r;
+            int c = next.c;
+            const int width = static_cast<int>(parameters["width_ratio"] * N + 0.5);
+            for (int i = 0; i < width; ++i)
+            {
+                const int nr = r + OFS[dir].r;
+                const int nc = c + OFS[dir].c;
+                if (is_out(nr, nc))
+                {
+                    break;
+                }
+                grids[ r][ c].adj[    dir].update_weak(average);
+                grids[nr][nc].adj[rev_dir].update_weak(average);
+                r = nr;
+                c = nc;
+            }
+        }
 
         ite = next;
     }
 }
 
-int main()
+#ifdef LOCAL
+void load_params(const boost::filesystem::path params_path)
 {
+    namespace fs = boost::filesystem;
+
+    boost::system::error_code error;
+    const bool is_exists = fs::exists(params_path, error);
+    if (!is_exists || error)
+    {
+        std::cerr << params_path << ": Not Found (" << error << ")" << std::endl;
+    }
+
+    namespace pt = boost::property_tree;
+
+    pt::ptree property_tree;
+    pt::read_json(fs::absolute(params_path).c_str(), property_tree);
+
+    const std::vector<std::string> params_list = {
+        "update_ratio",
+        "update_decrease_ratio",
+        "update_weak_ratio",
+        "update_weak_decrease_ratio",
+        "width_ratio",
+        "width_decrease_ratio"
+    };
+
+    for (const auto& param_name : params_list)
+    {
+        parameters.dict[param_name] = property_tree.get<double>(param_name);
+    }
+}
+#endif
+
+int main(const int argc, const char * const * const argv)
+{
+#ifdef LOCAL
+    {
+        using namespace boost::program_options;
+
+        options_description description;
+        description.add_options()
+            ("parameters,p", value<boost::filesystem::path>())
+            ("help,h", "help")
+            ;
+
+        variables_map vm;
+        store(parse_command_line(argc, argv, description), vm);
+        notify(vm);
+
+        if (vm.count("help"))
+        {
+            std::cerr << description << std::endl;
+            return 0;
+        }
+
+        if (vm.count("parameters"))
+        {
+            load_params(vm["parameters"].as<boost::filesystem::path>());
+        }
+    }
+#endif
+
+    std::mt19937 random_egine(std::hash<std::string>()("arukuka"));
+
     for (int r = 0; r < N; ++r)
     {
         for (int c = 0; c < N; ++c)
         {
             for (auto& v : grids[r][c].adj)
             {
-                v = static_cast<double>(MIN_DIST + MAX_DIST) / 2.0;
+                v.min = MIN_DIST;
+                v.max = MAX_DIST;
+                v.generate(random_egine);
             }
         }
     }
@@ -207,6 +395,18 @@ int main()
         std::cin >> score;
 
         update(path, score);
+
+        parameters.update();
+        for (int r = 0; r < N; ++r)
+        {
+            for (int c = 0; c < N; ++c)
+            {
+                for (auto& v : grids[r][c].adj)
+                {
+                    v.generate(random_egine);
+                }
+            }
+        }
     }
 
     return 0;
