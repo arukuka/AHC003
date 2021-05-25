@@ -261,41 +261,42 @@ void update(Path& path, const int score)
         Point next = ite;
         next.r += OFS[dir].r;
         next.c += OFS[dir].c;
-        {
-            // UPDATE
-            int r = next.r;
-            int c = next.c;
-            for (;;)
-            {
-                const int nr = r + OFS[rev_dir].r;
-                const int nc = c + OFS[rev_dir].c;
-                if (is_out(nr, nc))
-                {
-                    break;
-                }
-                grids[ r][ c].adj[rev_dir].update(average);
-                grids[nr][nc].adj[    dir].update(average);
-                r = nr;
-                c = nc;
-            }
-        }
+
+        // UPDATE
+        grids[ ite.r][ ite.c].adj[    dir].update(average);
+        grids[next.r][next.c].adj[rev_dir].update(average);
         {
             // UPDATE WEAK
-            int r = next.r;
-            int c = next.c;
-            const int width = static_cast<int>(parameters["width_ratio"] * N + 0.5);
-            for (int i = 0; i < width; ++i)
+            const std::array<Point, 2> start_points = {
+                ite,
+                next
+            };
+            const std::array<int, 2> update_dirs = {
+                rev_dir,
+                dir
+            };
+            for (int i = 0; i < 2; ++i)
             {
-                const int nr = r + OFS[dir].r;
-                const int nc = c + OFS[dir].c;
-                if (is_out(nr, nc))
+                const Point sp = start_points[i];
+                int r = sp.r;
+                int c = sp.c;
+                const int   foward_dir =  update_dirs[i];
+                const int backward_dir = (update_dirs[i] + 2) % 4;
+                const int width = static_cast<int>(parameters["width_ratio"] * N + 0.5);
+
+                for (int w = 0; w < width; ++w)
                 {
-                    break;
+                    const int nr = r + OFS[foward_dir].r;
+                    const int nc = c + OFS[foward_dir].c;
+                    if (is_out(nr, nc))
+                    {
+                        break;
+                    }
+                    grids[ r][ c].adj[  foward_dir].update_weak(average);
+                    grids[nr][nc].adj[backward_dir].update_weak(average);
+                    r = nr;
+                    c = nc;
                 }
-                grids[ r][ c].adj[    dir].update_weak(average);
-                grids[nr][nc].adj[rev_dir].update_weak(average);
-                r = nr;
-                c = nc;
             }
         }
 
