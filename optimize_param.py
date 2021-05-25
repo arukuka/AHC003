@@ -64,6 +64,7 @@ def main():
     parser.add_argument("inputs_dir", type=Path, help="AHC003 in dir")
     parser.add_argument("--study")
     parser.add_argument("--storage")
+    parser.add_argument("--show", action='store_true')
 
     args = parser.parse_args()
     assert args.target.is_file()
@@ -76,6 +77,11 @@ def main():
     else:
         print("CREATE STUDY")
         study = optuna.create_study(pruner=optuna.pruners.MedianPruner())
+
+    if args.show:
+        print("Best params: ", study.best_params)
+        print("Best value: ", study.best_value)
+        return
 
     study.optimize(
         lambda trial: objective(
