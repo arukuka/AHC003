@@ -12,6 +12,7 @@
 #include <cmath>
 #include <random>
 #include <string>
+#include <map>
 
 #ifdef LOCAL
 #include <boost/property_tree/ptree.hpp>
@@ -94,12 +95,12 @@ struct UCB1
 struct Parameters
 {
     std::map<std::string, double> dict = {
-        {"update_ratio", 0.5},
-        {"update_decrease_ratio", 1.0},
-        {"update_weak_ratio", 0},
-        {"update_weak_decrease_ratio", 1.0},
-        {"width_ratio", 0},
-        {"width_decrease_ratio", 1.0}
+        {"update_ratio", 0.559537888101038},
+        {"update_decrease_ratio", 0.8798946551390772},
+        {"update_weak_ratio", 0.19709048518341163},
+        {"update_weak_decrease_ratio",  0.997192165269988},
+        {"width_ratio", 0.3440998384706083},
+        {"width_decrease_ratio", 0.9990981780982433}
     };
 
     void update()
