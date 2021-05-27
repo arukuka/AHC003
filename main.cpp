@@ -96,18 +96,22 @@ struct Parameters
 {
     std::map<std::string, double> dict = {
         {"update_ratio", 0.559537888101038},
-        {"update_decrease_ratio", 0.8798946551390772},
+        {"update_decrease_ratio_by_time", 0.8798946551390772},
+        {"update_decrease_ratio_by_num", 1},
         {"update_weak_ratio", 0.19709048518341163},
-        {"update_weak_decrease_ratio",  0.997192165269988},
+        {"update_weak_decrease_ratio_by_time",  0.997192165269988},
+        {"update_weak_decrease_ratio_by_num", 1},
+        {"update_strong_weak_ratio", 1},
         {"width_ratio", 0.3440998384706083},
-        {"width_decrease_ratio", 0.9990981780982433}
+        {"width_decrease_ratio_by_time", 0.9990981780982433},
+        {"width_decrease_ratio_by_step", 1}
     };
 
     void update()
     {
-        dict["update_ratio"]      *= dict["update_decrease_ratio"];
-        dict["update_weak_ratio"] *= dict["update_weak_decrease_ratio"];
-        dict["width_ratio"]       *= dict["width_decrease_ratio"];
+        dict["update_ratio"]      *= dict["update_decrease_ratio_by_time"];
+        dict["update_weak_ratio"] *= dict["update_weak_decrease_ratio_by_time"];
+        dict["width_ratio"]       *= dict["width_decrease_ratio_by_time"];
     }
 
     double operator[](std::string s)
@@ -119,11 +123,11 @@ Parameters parameters;
 
 struct Probability
 {
-
-
     double distance;
     double min;
     double max;
+    int update_count;
+    int update_weak_count;
 
     template<typename RandomEngine>
     void generate(RandomEngine& rnd)
@@ -133,22 +137,39 @@ struct Probability
 
     void update(double next)
     {
-        const double rev = 1 - parameters["update_ratio"];
-        min = min * rev + next * parameters["update_ratio"];
-        max = max * rev + next * parameters["update_ratio"];
+        const double ratio = parameters["update_ratio"]
+                * std::pow(
+                    parameters["update_decrease_ratio_by_num"]
+                ,
+                      update_count      *      parameters["update_strong_weak_ratio"]
+                    + update_weak_count * (1 - parameters["update_strong_weak_ratio"]));
+        const double rev = 1 - ratio;
+        min = min * rev + next * ratio;
+        max = max * rev + next * ratio;
         const double tmp = std::min(min, max);
         max = std::max(min, max) + 1e-9;
         min = tmp;
+        ++update_count;
     }
 
-    void update_weak(double next)
+    void update_weak(double next, int step)
     {
-        const double rev = 1 - parameters["update_weak_ratio"];
-        min = min * rev + next * parameters["update_weak_ratio"];
-        max = max * rev + next * parameters["update_weak_ratio"];
+        const double ratio =
+                parameters["update_weak_ratio"]
+                    * std::pow(
+                        parameters["update_weak_decrease_ratio_by_num"]
+                    ,
+                          update_count      *      parameters["update_strong_weak_ratio"]
+                        + update_weak_count * (1 - parameters["update_strong_weak_ratio"])
+                    )
+                    * std::pow(parameters["width_decrease_ratio_by_step"], step);
+        const double rev = 1 - ratio;
+        min = min * rev + next * ratio;
+        max = max * rev + next * ratio;
         const double tmp = std::min(min, max);
         max = std::max(min, max) + 1e-9;
         min = tmp;
+        ++update_weak_count;
     }
 };
 
@@ -293,8 +314,8 @@ void update(Path& path, const int score)
                     {
                         break;
                     }
-                    grids[ r][ c].adj[  foward_dir].update_weak(average);
-                    grids[nr][nc].adj[backward_dir].update_weak(average);
+                    grids[ r][ c].adj[  foward_dir].update_weak(average, w);
+                    grids[nr][nc].adj[backward_dir].update_weak(average, w);
                     r = nr;
                     c = nc;
                 }
@@ -324,11 +345,15 @@ void load_params(const boost::filesystem::path params_path)
 
     const std::vector<std::string> params_list = {
         "update_ratio",
-        "update_decrease_ratio",
+        "update_decrease_ratio_by_time",
+        "update_decrease_ratio_by_num",
         "update_weak_ratio",
-        "update_weak_decrease_ratio",
+        "update_weak_decrease_ratio_by_time",
+        "update_weak_decrease_ratio_by_num",
+        "update_strong_weak_ratio",
         "width_ratio",
-        "width_decrease_ratio"
+        "width_decrease_ratio_by_time",
+        "width_decrease_ratio_by_step",
     };
 
     for (const auto& param_name : params_list)
@@ -377,6 +402,7 @@ int main(const int argc, const char * const * const argv)
             {
                 v.min = MIN_DIST;
                 v.max = MAX_DIST;
+                v.update_count = v.update_weak_count = 0;
                 v.generate(random_egine);
             }
         }

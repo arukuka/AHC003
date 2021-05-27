@@ -26,11 +26,15 @@ def run(target_path, tester_path, inputs_dir, param_path, index):
 def objective(trial, target_path, tester_path, inputs_dir):
     param_list = [
         "update_ratio",
-        "update_decrease_ratio",
+        "update_decrease_ratio_by_time",
+        "update_decrease_ratio_by_num",
         "update_weak_ratio",
-        "update_weak_decrease_ratio",
+        "update_weak_decrease_ratio_by_time",
+        "update_weak_decrease_ratio_by_num",
+        "update_strong_weak_ratio",
         "width_ratio",
-        "width_decrease_ratio",
+        "width_decrease_ratio_by_time",
+        "width_decrease_ratio_by_step",
     ]
     config = dict()
     for param_name in param_list:
@@ -57,6 +61,8 @@ def objective(trial, target_path, tester_path, inputs_dir):
         return score
 
 
+# optuna create-study --study 'AHC003' --storage 'sqlite:///AHC003.optuna.db'
+# python optimize_param.py ./build/ahc003_solver ./tools/target/release/tester ./tools/in --study 'AHC003' --storage 'sqlite:///AHC003.optuna.db'
 def main():
     parser = ArgumentParser()
     parser.add_argument("target", type=Path, help="target binary file")
