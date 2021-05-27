@@ -27,6 +27,8 @@ constexpr int N = 30;
 constexpr int MIN_DIST = 1000;
 constexpr int MAX_DIST = 9000;
 constexpr int NUM_QUERIS = 1000;
+constexpr int MIN_DIFF = 100;
+constexpr int MAX_DIFF = 2000;
 
 struct Point
 {
@@ -95,60 +97,110 @@ struct UCB1
 struct Parameters
 {
     std::map<std::string, double> dict = {
-        {"update_ratio", 0.559537888101038},
-        {"update_decrease_ratio", 0.8798946551390772},
-        {"update_weak_ratio", 0.19709048518341163},
-        {"update_weak_decrease_ratio",  0.997192165269988},
         {"width_ratio", 0.3440998384706083},
-        {"width_decrease_ratio", 0.9990981780982433}
+        {"width_decrease_ratio", 0.9990981780982433},
+        {"use_analyze_thr", 0},
+        {"default_value", 0}
     };
 
     void update()
     {
-        dict["update_ratio"]      *= dict["update_decrease_ratio"];
-        dict["update_weak_ratio"] *= dict["update_weak_decrease_ratio"];
         dict["width_ratio"]       *= dict["width_decrease_ratio"];
     }
 
-    double operator[](std::string s)
+    double operator[](const std::string& s) const
     {
         return dict.at(s);
+    }
+
+    int get_update_width() const
+    {
+        return static_cast<int>(dict.at("width_ratio") * N + 0.5);
     }
 };
 Parameters parameters;
 
 struct Probability
 {
-
+    static constexpr int HIST_DIV = 100;
+    static constexpr int HIST_NUM = MAX_DIST / HIST_DIV + 1;
+    static constexpr int SEARCH_NUMS = 2;
+    static constexpr int SEARCH_STEP = HIST_DIV / SEARCH_NUMS;
 
     double distance;
     double min;
     double max;
+    int update_num[HIST_NUM];
+    bool updated;
+
+    void analyze()
+    {
+        int best_min = -1;
+        int best_max = -1;
+        int best_score = std::numeric_limits<int>::max();
+
+        int sum = 0;
+        for (int h = 0; h < HIST_NUM; ++h)
+        {
+            sum += update_num[h];
+        }
+
+        if (sum < parameters["use_analyze_thr"])
+        {
+            min = max = parameters["default_value"];
+            max += 1e-6;
+        }
+
+        for (int _diff = MIN_DIFF / HIST_DIV; _diff <= MAX_DIFF / HIST_DIV; ++_diff)
+        {
+            const int diff = _diff * HIST_DIV;
+            for (int _min = (MIN_DIST + diff) / SEARCH_STEP; _min < (MAX_DIST - diff) / SEARCH_STEP; ++_min)
+            {
+                const int min = _min * SEARCH_STEP;
+                const int max = min + diff;
+                const double ave = static_cast<double>(sum) / _diff;
+                int score = 0;
+                for (int h = 0; h < HIST_NUM; ++h)
+                {
+                    const int val = h * HIST_DIV;
+                    const int cnt = update_num[h];
+                    const double d = min <= val && val <= max
+                                   ? cnt - ave
+                                   : cnt;
+
+                    const int d2 = d * d;
+
+                    score += d2;
+                }
+
+                if (score < best_score)
+                {
+                    best_score = score;
+                    best_min = min;
+                    best_max = max;
+                }
+            }
+        }
+
+        min = best_min;
+        max = best_max;
+    }
 
     template<typename RandomEngine>
     void generate(RandomEngine& rnd)
     {
+        if (updated)
+        {
+            analyze();
+        }
+
         distance = std::uniform_real_distribution<>(min, max)(rnd);
     }
 
     void update(double next)
     {
-        const double rev = 1 - parameters["update_ratio"];
-        min = min * rev + next * parameters["update_ratio"];
-        max = max * rev + next * parameters["update_ratio"];
-        const double tmp = std::min(min, max);
-        max = std::max(min, max) + 1e-9;
-        min = tmp;
-    }
-
-    void update_weak(double next)
-    {
-        const double rev = 1 - parameters["update_weak_ratio"];
-        min = min * rev + next * parameters["update_weak_ratio"];
-        max = max * rev + next * parameters["update_weak_ratio"];
-        const double tmp = std::min(min, max);
-        max = std::max(min, max) + 1e-9;
-        min = tmp;
+        const int index = static_cast<int>((next + HIST_DIV / 2.0) / HIST_DIV);
+        update_num[index]++;
     }
 };
 
@@ -283,7 +335,7 @@ void update(Path& path, const int score)
                 int c = sp.c;
                 const int   foward_dir =  update_dirs[i];
                 const int backward_dir = (update_dirs[i] + 2) % 4;
-                const int width = static_cast<int>(parameters["width_ratio"] * N + 0.5);
+                const int width = parameters.get_update_width();
 
                 for (int w = 0; w < width; ++w)
                 {
@@ -293,8 +345,8 @@ void update(Path& path, const int score)
                     {
                         break;
                     }
-                    grids[ r][ c].adj[  foward_dir].update_weak(average);
-                    grids[nr][nc].adj[backward_dir].update_weak(average);
+                    grids[ r][ c].adj[  foward_dir].update(average);
+                    grids[nr][nc].adj[backward_dir].update(average);
                     r = nr;
                     c = nc;
                 }
@@ -323,12 +375,10 @@ void load_params(const boost::filesystem::path params_path)
     pt::read_json(fs::absolute(params_path).c_str(), property_tree);
 
     const std::vector<std::string> params_list = {
-        "update_ratio",
-        "update_decrease_ratio",
-        "update_weak_ratio",
-        "update_weak_decrease_ratio",
         "width_ratio",
-        "width_decrease_ratio"
+        "width_decrease_ratio",
+        "use_analyze_thr",
+        "default_value"
     };
 
     for (const auto& param_name : params_list)
@@ -375,8 +425,6 @@ int main(const int argc, const char * const * const argv)
         {
             for (auto& v : grids[r][c].adj)
             {
-                v.min = MIN_DIST;
-                v.max = MAX_DIST;
                 v.generate(random_egine);
             }
         }

@@ -25,16 +25,14 @@ def run(target_path, tester_path, inputs_dir, param_path, index):
 
 def objective(trial, target_path, tester_path, inputs_dir):
     param_list = [
-        "update_ratio",
-        "update_decrease_ratio",
-        "update_weak_ratio",
-        "update_weak_decrease_ratio",
         "width_ratio",
         "width_decrease_ratio",
     ]
     config = dict()
     for param_name in param_list:
         config[param_name] = trial.suggest_uniform(param_name, 0.0, 1.0 + 1e-6)
+    config["use_analyze_thr"] = trial.suggest_int("use_analyze_thr", 0, 10)
+    config["default_value"] = trial.suggest_uniform("default_value", 1000, 9000 + 1e-6)
 
     NUM_TEST = 100
 
@@ -47,7 +45,7 @@ def objective(trial, target_path, tester_path, inputs_dir):
         score = 0
         for index in range(NUM_TEST):
             raw_score = run(target_path, tester_path, inputs_dir, param_path, index)
-            score = score - raw_score / NUM_TEST
+            score = score - raw_score
 
             trial.report(score, index)
 
