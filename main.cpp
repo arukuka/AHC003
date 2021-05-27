@@ -100,7 +100,8 @@ struct Parameters
         {"width_ratio", 0.3440998384706083},
         {"width_decrease_ratio", 0.9990981780982433},
         {"use_analyze_thr", 0},
-        {"default_value", 0}
+        {"default_value", 0},
+        {"default_width", 0},
     };
 
     void update()
@@ -122,9 +123,9 @@ Parameters parameters;
 
 struct Probability
 {
-    static constexpr int HIST_DIV = 100;
+    static constexpr int HIST_DIV = 500;
     static constexpr int HIST_NUM = MAX_DIST / HIST_DIV + 1;
-    static constexpr int SEARCH_NUMS = 2;
+    static constexpr int SEARCH_NUMS = 1;
     static constexpr int SEARCH_STEP = HIST_DIV / SEARCH_NUMS;
 
     double distance;
@@ -147,11 +148,11 @@ struct Probability
 
         if (sum < parameters["use_analyze_thr"])
         {
-            min = max = parameters["default_value"];
-            max += 1e-6;
+            min = parameters["default_value"] - parameters["default_width"];
+            min = parameters["default_value"] + parameters["default_width"];
         }
 
-        for (int _diff = MIN_DIFF / HIST_DIV; _diff <= MAX_DIFF / HIST_DIV; ++_diff)
+        for (int _diff = std::max(1, MIN_DIFF / HIST_DIV); _diff <= MAX_DIFF / HIST_DIV; ++_diff)
         {
             const int diff = _diff * HIST_DIV;
             for (int _min = (MIN_DIST + diff) / SEARCH_STEP; _min < (MAX_DIST - diff) / SEARCH_STEP; ++_min)
@@ -192,6 +193,7 @@ struct Probability
         if (updated)
         {
             analyze();
+            updated = false;
         }
 
         distance = std::uniform_real_distribution<>(min, max)(rnd);
@@ -201,6 +203,7 @@ struct Probability
     {
         const int index = static_cast<int>((next + HIST_DIV / 2.0) / HIST_DIV);
         update_num[index]++;
+        updated = true;
     }
 };
 
@@ -378,7 +381,8 @@ void load_params(const boost::filesystem::path params_path)
         "width_ratio",
         "width_decrease_ratio",
         "use_analyze_thr",
-        "default_value"
+        "default_value",
+        "default_width"
     };
 
     for (const auto& param_name : params_list)
@@ -425,6 +429,7 @@ int main(const int argc, const char * const * const argv)
         {
             for (auto& v : grids[r][c].adj)
             {
+                v.updated = true;
                 v.generate(random_egine);
             }
         }

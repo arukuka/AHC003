@@ -32,7 +32,8 @@ def objective(trial, target_path, tester_path, inputs_dir):
     for param_name in param_list:
         config[param_name] = trial.suggest_uniform(param_name, 0.0, 1.0 + 1e-6)
     config["use_analyze_thr"] = trial.suggest_int("use_analyze_thr", 0, 10)
-    config["default_value"] = trial.suggest_uniform("default_value", 1000, 9000 + 1e-6)
+    config["default_value"] = trial.suggest_int("default_value", 1000, 9000)
+    config["default_width"] = trial.suggest_int("defalt_width", 1000, 9000)
 
     NUM_TEST = 100
 
